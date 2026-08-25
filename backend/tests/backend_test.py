@@ -49,9 +49,10 @@ def test_register_sets_http_only_session_and_dashboard(client):
     dashboard = client.get(f"{BASE_URL}/api/dashboard")
     assert dashboard.status_code == 200
     data = dashboard.json()
-    assert len(data["metrics"]) == 4
-    assert len(data["sales"]) == 3
-    assert len(data["inventory"]) == 2
+    # Dashboard starts empty: no demonstrative metrics, sales or inventory.
+    assert data["metrics"] == []
+    assert data["sales"] == []
+    assert data["inventory"] == []
 
     logout = client.post(f"{BASE_URL}/api/auth/logout", json={})
     assert logout.status_code == 200

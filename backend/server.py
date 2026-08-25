@@ -133,7 +133,7 @@ async def forgot_password(input: ForgotInput):
 
 @api_router.get("/dashboard", dependencies=[Depends(current_user)])
 async def dashboard():
-    return {"metrics": [{"label": "Faturamento hoje", "value": "R$ 4.860,00", "change": "+12,8%", "tone": "positive"}, {"label": "Lucro estimado", "value": "R$ 1.942,00", "change": "+8,4%", "tone": "positive"}, {"label": "Despesas do mês", "value": "R$ 18.420,00", "change": "3 contas pendentes", "tone": "warning"}, {"label": "Itens vendidos", "value": "486", "change": "nesta semana", "tone": "neutral"}], "sales": [{"name": "Croissant de chocolate", "time": "10:42", "amount": "R$ 18,00", "payment": "PIX"}, {"name": "Pão de fermentação natural", "time": "10:26", "amount": "R$ 28,00", "payment": "Cartão"}, {"name": "Bolo de cenoura", "time": "09:58", "amount": "R$ 42,00", "payment": "Dinheiro"}], "inventory": [{"name": "Farinha de trigo", "stock": "8,5 kg", "limit": "10 kg", "status": "Abaixo do mínimo"}, {"name": "Manteiga sem sal", "stock": "2,1 kg", "limit": "3 kg", "status": "Abaixo do mínimo"}]}
+    return {"metrics": [], "sales": [], "inventory": []}
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):

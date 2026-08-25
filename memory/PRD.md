@@ -18,6 +18,8 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - Login, cadastro, logout, sessão persistente e recuperação de senha.
 - Papéis Administrador, Caixa e Funcionário.
 - Dashboard com faturamento, lucro, despesas, vendas e alertas de estoque.
+- Todas as telas iniciam sem registros ou valores demonstrativos, prontas para os dados reais da padaria.
+- Navegação funcional para Visão geral, PDV, Estoque, Produção, Financeiro, Relatórios, Clientes e Configurações.
 - Documentação viva em MER, roadmap e changelog.
 
 ## Implementado em 2026-03-08
@@ -25,6 +27,7 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - API de autenticação e dashboard protegida.
 - Modelo Prisma relacional inicial e MER em Mermaid.
 - Testes independentes cobriram desktop, mobile, sessão, lockout e recuperação real.
+- Módulos vazios com estados iniciais e ações de cadastro foram adicionados em 2026-03-08.
 
 ## Backlog priorizado
 ### P0

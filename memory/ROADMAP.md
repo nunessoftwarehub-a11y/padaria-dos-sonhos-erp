@@ -4,6 +4,7 @@
 - Modelo entidade-relacionamento inicial e papéis de acesso
 - Sessão JWT, cadastro, login, logout e recuperação preparada
 - Dashboard operacional com métricas e alertas de estoque
+- Navegação funcional para todos os módulos, iniciando vazia para uso real
 - Estrutura visual clara/escura pronta para identidade da padaria
 
 ## Etapa 2 — Compras e estoque

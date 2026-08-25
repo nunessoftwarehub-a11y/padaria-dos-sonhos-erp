@@ -6,3 +6,4 @@
 - Documentados MER, roadmap e decisões de arquitetura.
 - Corrigidos recuperação de senha, proteção contra tentativas consecutivas e layout mobile.
 - Configurada origem CORS explícita no serviço e segredo JWT estável.
+- Removidos dados demonstrativos do dashboard e ativadas as abas PDV, Estoque, Produção, Financeiro, Relatórios, Clientes e Configurações.

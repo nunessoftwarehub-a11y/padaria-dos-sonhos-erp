@@ -1,13 +1,47 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import axios from "axios";
-import { BarChart3, Bell, ChevronDown, CircleDollarSign, ClipboardList, Coffee, CreditCard, LayoutDashboard, LogOut, Menu, Moon, Package, Search, Settings, Sun, Users, WalletCards } from "lucide-react";
+import "@/Module.css";
+import {
+  BarChart3, Bell, ChevronDown, Coffee, CreditCard, LayoutDashboard,
+  LogOut, Menu, Moon, Package, Search, Settings, Sun, Users, WalletCards,
+} from "lucide-react";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const menu = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: CreditCard }, { label: "Estoque", icon: Package }, { label: "Produção", icon: Coffee }, { label: "Financeiro", icon: WalletCards }, { label: "Relatórios", icon: BarChart3 }];
+const menu = [
+  { id: "overview", label: "Visão geral", icon: LayoutDashboard },
+  { id: "pos", label: "PDV", icon: CreditCard },
+  { id: "inventory", label: "Estoque", icon: Package },
+  { id: "production", label: "Produção", icon: Coffee },
+  { id: "finance", label: "Financeiro", icon: WalletCards },
+  { id: "reports", label: "Relatórios", icon: BarChart3 },
+  { id: "customers", label: "Clientes", icon: Users },
+  { id: "settings", label: "Configurações", icon: Settings },
+];
+
+const moduleCopy = {
+  pos: ["PDV", "Registre suas vendas quando os produtos estiverem cadastrados.", "Cadastrar produto"],
+  inventory: ["Estoque", "Controle ingredientes, produtos e movimentações da sua padaria.", "Adicionar ingrediente"],
+  production: ["Produção", "Registre receitas e acompanhe a produção diária.", "Criar receita"],
+  finance: ["Financeiro", "Organize contas, despesas e o fluxo de caixa da operação.", "Adicionar lançamento"],
+  reports: ["Relatórios", "Seus relatórios aparecerão aqui conforme as movimentações forem registradas.", "Configurar relatório"],
+  customers: ["Clientes", "Cadastre clientes para acompanhar histórico e relacionamento.", "Cadastrar cliente"],
+  settings: ["Configurações", "Configure a empresa, usuários, permissões e preferências do sistema.", "Configurar empresa"],
+};
+
+function EmptyModule({ page }) {
+  const [title, description, action] = moduleCopy[page];
+  return <div className="module-content"><div className="module-heading"><div><p className="eyebrow">MÓDULO</p><h1>{title}</h1><p className="subtle">{description}</p></div><button data-testid={`${page}-primary-action`} className="primary-button">{action}</button></div><section data-testid={`${page}-empty-state`} className="empty-state"><span className="empty-icon"><Package size={25} /></span><h2>Nenhum registro ainda</h2><p>Quando você adicionar os primeiros dados, eles aparecerão nesta área.</p><button data-testid={`${page}-empty-action`} className="link-button">{action} <span>→</span></button></section></div>;
+}
+
+function Overview() {
+  const cards = ["Faturamento diário", "Faturamento mensal", "Lucro", "Despesas"];
+  return <div className="module-content"><div className="module-heading"><div><p className="eyebrow">VISÃO GERAL</p><h1>Seu painel</h1><p className="subtle">Os indicadores da sua operação aparecerão aqui.</p></div><button data-testid="overview-new-sale-button" className="primary-button"><CreditCard size={16} /> Nova venda</button></div><section className="metric-grid">{cards.map((label) => <article data-testid={`empty-metric-${label.toLowerCase().replaceAll(" ", "-")}`} className="metric-card empty-metric" key={label}><div className="metric-top"><span>{label}</span><span>—</span></div><strong>—</strong><small>Aguardando dados</small></article>)}</section><section className="dashboard-grid"><article data-testid="overview-sales-empty" className="panel empty-panel"><p className="eyebrow">MOVIMENTO</p><h3>Vendas recentes</h3><p>Nenhuma venda registrada.</p><button data-testid="overview-sales-action" className="link-button">Registrar primeira venda <span>→</span></button></article><article data-testid="overview-stock-empty" className="panel empty-panel"><p className="eyebrow">ESTOQUE</p><h3>Estoque mínimo</h3><p>Nenhum ingrediente cadastrado.</p><button data-testid="overview-stock-action" className="link-button">Adicionar ingrediente <span>→</span></button></article></section></div>;
+}
 
 export default function Dashboard({ user, onLogout }) {
-  const [dark, setDark] = useState(false); const [data, setData] = useState(null); const [mobileMenu, setMobileMenu] = useState(false);
-  useEffect(() => { axios.get(`${API}/dashboard`, { withCredentials: true }).then((r) => setData(r.data)).catch(() => {}); }, []);
-  const logout = async () => { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); onLogout(); };
-  return <div className={dark ? "app-layout dark-mode" : "app-layout"}><aside className={mobileMenu ? "sidebar open" : "sidebar"}><div className="sidebar-brand"><span className="brand-mark"><Coffee size={18} /></span><span>PADARIA<br /><strong>DOS SONHOS</strong></span></div><div className="workspace"><span className="workspace-avatar">PS</span><span><b>Padaria dos Sonhos</b><small>Unidade principal</small></span><ChevronDown size={15} /></div><nav>{menu.map(({ label, icon: Icon }, index) => <button data-testid={`nav-${label.toLowerCase().replaceAll(" ", "-")}-button`} className={index === 0 ? "nav-item active" : "nav-item"} key={label}><Icon size={18} /><span>{label}</span>{label === "Estoque" && <i>2</i>}</button>)}<div className="nav-divider" /><button data-testid="nav-customers-button" className="nav-item"><Users size={18} /><span>Clientes</span></button><button data-testid="nav-settings-button" className="nav-item"><Settings size={18} /><span>Configurações</span></button></nav><div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><span><b>{user.name}</b><small>{user.role_label}</small></span></div><button data-testid="logout-button" className="logout-button" onClick={logout}><LogOut size={17} /></button></div></aside><main className="dashboard-main"><header className="topbar"><button data-testid="mobile-menu-button" className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)}><Menu size={20} /></button><div className="breadcrumb"><span>Início</span><b>/</b><strong>Visão geral</strong></div><div className="topbar-actions"><button data-testid="search-button" className="icon-button"><Search size={18} /></button><button data-testid="notifications-button" className="icon-button notification"><Bell size={18} /><i /></button><button data-testid="theme-toggle-button" className="icon-button" onClick={() => setDark(!dark)}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button></div></header><div className="dashboard-content"><div className="welcome-row"><div><p className="eyebrow">SÁBADO, 08 DE MARÇO DE 2026</p><h1>Bom dia, {user.name.split(" ")[0]}.</h1><p className="subtle">Aqui está o pulso da sua operação hoje.</p></div><button data-testid="new-sale-button" className="primary-button compact"><CreditCard size={16} /> Nova venda</button></div><section className="metric-grid">{(data?.metrics || []).map((metric) => <article data-testid={`metric-${metric.label.toLowerCase().replaceAll(" ", "-")}-card`} className="metric-card" key={metric.label}><div className="metric-top"><span>{metric.label}</span><CircleDollarSign size={18} /></div><strong>{metric.value}</strong><small className={metric.tone}>{metric.change}</small></article>)}</section><section className="dashboard-grid"><article className="panel sales-panel"><div className="panel-heading"><div><p className="eyebrow">MOVIMENTO</p><h3>Vendas recentes</h3></div><button data-testid="view-sales-button" className="link-button">Ver todas <span>→</span></button></div><div className="sales-list">{(data?.sales || []).map((sale) => <div data-testid="recent-sale-row" className="sale-row" key={sale.time}><span className="sale-icon"><ClipboardList size={16} /></span><span className="sale-info"><b>{sale.name}</b><small>{sale.time} · {sale.payment}</small></span><strong>{sale.amount}</strong></div>)}</div></article><article className="panel inventory-panel"><div className="panel-heading"><div><p className="eyebrow">ATENÇÃO</p><h3>Estoque mínimo</h3></div><button data-testid="view-inventory-button" className="link-button">Acessar <span>→</span></button></div>{(data?.inventory || []).map((item) => <div data-testid="low-stock-row" className="stock-row" key={item.name}><span className="stock-dot" /><span><b>{item.name}</b><small>{item.status}</small></span><strong>{item.stock}<small> / {item.limit}</small></strong></div>)}<div className="stock-note"><Package size={16} /> 2 itens precisam de atenção</div></article></section></div></main></div>;
+  const [dark, setDark] = useState(false);
+  const [page, setPage] = useState("overview");
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const logout = async () => { await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/auth/logout`, {}, { withCredentials: true }); onLogout(); };
+  const current = menu.find((item) => item.id === page);
+  return <div className={dark ? "app-layout dark-mode" : "app-layout"}><aside className={mobileMenu ? "sidebar open" : "sidebar"}><div className="sidebar-brand"><span className="brand-mark"><Coffee size={18} /></span><span>PADARIA<br /><strong>DOS SONHOS</strong></span></div><div className="workspace"><span className="workspace-avatar">PS</span><span><b>Padaria dos Sonhos</b><small>Unidade principal</small></span><ChevronDown size={15} /></div><nav>{menu.map(({ id, label, icon: Icon }) => <button data-testid={`nav-${id}-button`} className={page === id ? "nav-item active" : "nav-item"} onClick={() => { setPage(id); setMobileMenu(false); }} key={id}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><span><b>{user.name}</b><small>{user.role_label}</small></span></div><button data-testid="logout-button" className="logout-button" onClick={logout}><LogOut size={17} /></button></div></aside><main className="dashboard-main"><header className="topbar"><button data-testid="mobile-menu-button" className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)}><Menu size={20} /></button><div className="breadcrumb"><span>Início</span><b>/</b><strong>{current.label}</strong></div><div className="topbar-actions"><button data-testid="search-button" className="icon-button"><Search size={18} /></button><button data-testid="notifications-button" className="icon-button notification"><Bell size={18} /><i /></button><button data-testid="theme-toggle-button" className="icon-button" onClick={() => setDark(!dark)}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button></div></header>{page === "overview" ? <Overview /> : <EmptyModule page={page} />}</main></div>;
 }
