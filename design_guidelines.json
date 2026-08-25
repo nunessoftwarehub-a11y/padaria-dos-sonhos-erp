@@ -1,0 +1,84 @@
+{
+  "app_name": "Padaria dos Sonhos ERP",
+  "context": "Enterprise SaaS for Bakery & Confectionery Management (Commercial MVP Foundation & Full Modules)",
+  "emotional_tone": "Warm, professional, reliable, artisan-crafted warmth paired with high-precision enterprise control",
+  "archetype": "ORGANIC & EARTHY (Trust, Growth, Calm) with Performance Pro precision",
+  "typography": {
+    "headings": "Playfair Display / Cabinet Grotesk",
+    "body": "Inter / Plus Jakarta Sans",
+    "weights": ["font-light", "font-normal", "font-medium", "font-semibold", "font-bold", "font-[850]"],
+    "rules": "H1 text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none. Overlines uppercase tracking-[0.2em] text-xs font-semibold."
+  },
+  "colors": {
+    "primary": "#B45309",
+    "primary_hover": "#92400E",
+    "accent": "#D97706",
+    "background_light": "#FAF9F6",
+    "background_dark": "#181412",
+    "card_bg": "#FFFFFF",
+    "border_color": "#E7E5E4",
+    "text_main": "#1C1917",
+    "text_muted": "#78716C",
+    "success": "#16A34A",
+    "warning": "#CA8A04",
+    "danger": "#DC2626",
+    "forbidden": "#7351B7"
+  },
+  "visual_enhancers": {
+    "border_radius": "rounded-xl",
+    "shadows": "shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
+    "glassmorphism": "backdrop-blur-xl bg-white/80 border border-stone-200/60 shadow-sm",
+    "texture": "Warm stone and wheat grain accents, subtle grain overlays on headers"
+  },
+  "grids": {
+    "bento_marketing": "grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8",
+    "dashboard_density": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6"
+  },
+  "layouts": {
+    "responsive": "mobile-first approach with fluid containers max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "sidebar": "collapsible high-density navigation for Admin, Cashier, and Staff roles"
+  },
+  "motion": {
+    "transitions": "transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg transition-all duration-200",
+    "prefers_reduced_motion": "respected via media query checks"
+  },
+  "accessibility": {
+    "contrast_ratio": "Minimum 4.5:1 for normal text, 3:1 for large text and interactive elements",
+    "focus_states": "focus:ring-2 focus:ring-amber-500 focus:outline-none",
+    "aria_labels": "MANDATORY on all icon buttons and interactive controls"
+  },
+  "media": {
+    "hero_overlay": "bg-gradient-to-r from-stone-950/80 via-stone-900/50 to-transparent",
+    "image_urls": [
+      {
+        "category": "Hero Artisan Bakery",
+        "url": "https://images.unsplash.com/photo-1560427183-4efd29c38997?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwzfHxiYWtlcnklMjBhcnRpc2FuJTIwYnJlYWQlMjBwYXN0cnklMjBvdmVufGVufDB8fHx8MTc4NzY5OTA1NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Master baker working with artisan bread in a traditional stone oven"
+      },
+      {
+        "category": "Bakery Showcase",
+        "url": "https://images.unsplash.com/photo-1587241321921-91a834d6d191?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxiYWtlcnklMjBhcnRpc2FuJTIwYnJlYWQlMjBwYXN0cnklMjBvdmVufGVufDB8fHx8MTc4NzY5OTA1NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Artisan bakery display shelf with fresh breads and pastries"
+      },
+      {
+        "category": "Baking Oven",
+        "url": "https://images.pexels.com/photos/37290070/pexels-photo-37290070.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Fresh flatbreads baking inside a rustic stone oven"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Ensure all interactive elements have data-testid attributes for robust automated testing.",
+    "Implement full role-based access control (Admin, Caixa, Funcionário) with JWT authentication.",
+    "Include all 14 core modules: Login/Register, Dashboard, Ingredients, Recipes, Production, Products, Stock, POS (PDV), Cashier (Caixa), Financial, Reports, Customers, Employees, and Settings.",
+    "Ensure API communication with Express + Prisma backend is fully wired with React Query and robust error handling using Sonner toasts.",
+    "Maintain strict adherence to Tailwind CSS spacing scales (p-6, p-8, gap-6) and avoid pure #000000 or unstyled defaults."
+  ],
+  "universal_guidelines_for_main_agent": [
+    "Never use AI assistant emoji characters like 🤖🧠💭💡🔮🎯 for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Never use complete transparent backgrounds in headers or overlays without blur."
+  ]
+}
