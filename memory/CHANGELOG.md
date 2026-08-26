@@ -7,3 +7,4 @@
 - Corrigidos recuperação de senha, proteção contra tentativas consecutivas e layout mobile.
 - Configurada origem CORS explícita no serviço e segredo JWT estável.
 - Removidos dados demonstrativos do dashboard e ativadas as abas PDV, Estoque, Produção, Financeiro, Relatórios, Clientes e Configurações.
+- Adicionados seletores rápidos no PDV, cadastro de ingredientes, sugestão automática de preço e cálculo de custo das receitas por ingrediente/quantidade.

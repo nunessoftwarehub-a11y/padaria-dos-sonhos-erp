@@ -1,6 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import "@/Module.css";
+import CrudModule from "@/CrudModule";
 import {
   BarChart3, Bell, ChevronDown, Coffee, CreditCard, LayoutDashboard,
   LogOut, Menu, Moon, Package, Search, Settings, Sun, Users, WalletCards,
@@ -9,6 +10,8 @@ import {
 const menu = [
   { id: "overview", label: "Visão geral", icon: LayoutDashboard },
   { id: "pos", label: "PDV", icon: CreditCard },
+  { id: "products", label: "Produtos", icon: Package },
+  { id: "ingredients", label: "Ingredientes", icon: Package },
   { id: "inventory", label: "Estoque", icon: Package },
   { id: "production", label: "Produção", icon: Coffee },
   { id: "finance", label: "Financeiro", icon: WalletCards },
@@ -17,20 +20,6 @@ const menu = [
   { id: "settings", label: "Configurações", icon: Settings },
 ];
 
-const moduleCopy = {
-  pos: ["PDV", "Registre suas vendas quando os produtos estiverem cadastrados.", "Cadastrar produto"],
-  inventory: ["Estoque", "Controle ingredientes, produtos e movimentações da sua padaria.", "Adicionar ingrediente"],
-  production: ["Produção", "Registre receitas e acompanhe a produção diária.", "Criar receita"],
-  finance: ["Financeiro", "Organize contas, despesas e o fluxo de caixa da operação.", "Adicionar lançamento"],
-  reports: ["Relatórios", "Seus relatórios aparecerão aqui conforme as movimentações forem registradas.", "Configurar relatório"],
-  customers: ["Clientes", "Cadastre clientes para acompanhar histórico e relacionamento.", "Cadastrar cliente"],
-  settings: ["Configurações", "Configure a empresa, usuários, permissões e preferências do sistema.", "Configurar empresa"],
-};
-
-function EmptyModule({ page }) {
-  const [title, description, action] = moduleCopy[page];
-  return <div className="module-content"><div className="module-heading"><div><p className="eyebrow">MÓDULO</p><h1>{title}</h1><p className="subtle">{description}</p></div><button data-testid={`${page}-primary-action`} className="primary-button">{action}</button></div><section data-testid={`${page}-empty-state`} className="empty-state"><span className="empty-icon"><Package size={25} /></span><h2>Nenhum registro ainda</h2><p>Quando você adicionar os primeiros dados, eles aparecerão nesta área.</p><button data-testid={`${page}-empty-action`} className="link-button">{action} <span>→</span></button></section></div>;
-}
 
 function Overview() {
   const cards = ["Faturamento diário", "Faturamento mensal", "Lucro", "Despesas"];
@@ -43,5 +32,6 @@ export default function Dashboard({ user, onLogout }) {
   const [mobileMenu, setMobileMenu] = useState(false);
   const logout = async () => { await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/auth/logout`, {}, { withCredentials: true }); onLogout(); };
   const current = menu.find((item) => item.id === page);
-  return <div className={dark ? "app-layout dark-mode" : "app-layout"}><aside className={mobileMenu ? "sidebar open" : "sidebar"}><div className="sidebar-brand"><span className="brand-mark"><Coffee size={18} /></span><span>PADARIA<br /><strong>DOS SONHOS</strong></span></div><div className="workspace"><span className="workspace-avatar">PS</span><span><b>Padaria dos Sonhos</b><small>Unidade principal</small></span><ChevronDown size={15} /></div><nav>{menu.map(({ id, label, icon: Icon }) => <button data-testid={`nav-${id}-button`} className={page === id ? "nav-item active" : "nav-item"} onClick={() => { setPage(id); setMobileMenu(false); }} key={id}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><span><b>{user.name}</b><small>{user.role_label}</small></span></div><button data-testid="logout-button" className="logout-button" onClick={logout}><LogOut size={17} /></button></div></aside><main className="dashboard-main"><header className="topbar"><button data-testid="mobile-menu-button" className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)}><Menu size={20} /></button><div className="breadcrumb"><span>Início</span><b>/</b><strong>{current.label}</strong></div><div className="topbar-actions"><button data-testid="search-button" className="icon-button"><Search size={18} /></button><button data-testid="notifications-button" className="icon-button notification"><Bell size={18} /><i /></button><button data-testid="theme-toggle-button" className="icon-button" onClick={() => setDark(!dark)}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button></div></header>{page === "overview" ? <Overview /> : <EmptyModule page={page} />}</main></div>;
+  const content = page === "overview" ? <Overview /> : page === "pos" ? <CrudModule type="pos" /> : page === "products" ? <CrudModule type="products" /> : page === "ingredients" ? <CrudModule type="ingredients" /> : page === "customers" ? <CrudModule type="customers" /> : page === "production" ? <CrudModule type="recipes" /> : <div className="module-content"><div className="module-heading"><div><p className="eyebrow">MÓDULO</p><h1>{current.label}</h1><p className="subtle">Esta área está pronta para receber os dados da sua operação.</p></div></div><section data-testid={`${page}-empty-state`} className="empty-state"><h2>Nenhum registro ainda</h2><p>Comece cadastrando os dados da sua padaria.</p></section></div>;
+  return <div className={dark ? "app-layout dark-mode" : "app-layout"}><aside className={mobileMenu ? "sidebar open" : "sidebar"}><div className="sidebar-brand"><span className="brand-mark"><Coffee size={18} /></span><span>PADARIA<br /><strong>DOS SONHOS</strong></span></div><div className="workspace"><span className="workspace-avatar">PS</span><span><b>Padaria dos Sonhos</b><small>Unidade principal</small></span><ChevronDown size={15} /></div><nav>{menu.map(({ id, label, icon: Icon }) => <button data-testid={`nav-${id}-button`} className={page === id ? "nav-item active" : "nav-item"} onClick={() => { setPage(id); setMobileMenu(false); }} key={id}><Icon size={18} /><span>{label}</span></button>)}</nav><div className="sidebar-bottom"><div className="user-chip"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><span><b>{user.name}</b><small>{user.role_label}</small></span></div><button data-testid="logout-button" className="logout-button" onClick={logout}><LogOut size={17} /></button></div></aside><main className="dashboard-main"><header className="topbar"><button data-testid="mobile-menu-button" className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)}><Menu size={20} /></button><div className="breadcrumb"><span>Início</span><b>/</b><strong>{current.label}</strong></div><div className="topbar-actions"><button data-testid="search-button" className="icon-button"><Search size={18} /></button><button data-testid="notifications-button" className="icon-button notification"><Bell size={18} /><i /></button><button data-testid="theme-toggle-button" className="icon-button" onClick={() => setDark(!dark)}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button></div></header>{content}</main></div>;
 }

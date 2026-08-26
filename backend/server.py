@@ -52,6 +52,42 @@ class AuthInput(BaseModel):
 class ForgotInput(BaseModel):
     email: EmailStr
 
+class ProductInput(BaseModel):
+    name: str = Field(min_length=2)
+    sale_price: Optional[float] = None
+    purchase_price: Optional[float] = None
+    purchase_quantity: Optional[float] = None
+    unit: Optional[str] = None
+    barcode: Optional[str] = None
+
+class IngredientInput(BaseModel):
+    name: str = Field(min_length=2)
+    purchase_price: float = Field(ge=0)
+    purchase_quantity: float = Field(gt=0)
+    unit: str = "unidade"
+
+class CustomerInput(BaseModel):
+    name: str = Field(min_length=2)
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+
+class RecipeInput(BaseModel):
+    name: str = Field(min_length=2)
+    category: Optional[str] = None
+    ingredients: Optional[List[dict]] = None
+    preparation: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    yield_quantity: Optional[float] = None
+
+class SaleInput(BaseModel):
+    product_name: str = Field(min_length=2)
+    quantity: int = Field(ge=1)
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
+    customer_name: Optional[str] = None
+
 class UserResponse(BaseModel):
     id: str
     name: str
@@ -134,6 +170,71 @@ async def forgot_password(input: ForgotInput):
 @api_router.get("/dashboard", dependencies=[Depends(current_user)])
 async def dashboard():
     return {"metrics": [], "sales": [], "inventory": []}
+
+async def list_resource(collection: str, user: UserResponse):
+    return await db[collection].find({"created_by": user.id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+async def create_resource(collection: str, payload: BaseModel, user: UserResponse):
+    document = payload.model_dump() if isinstance(payload, BaseModel) else dict(payload)
+    document.update({"id": str(uuid.uuid4()), "created_by": user.id, "created_at": datetime.now(timezone.utc).isoformat()})
+    await db[collection].insert_one(document)
+    document.pop("_id", None)
+    return document
+
+@api_router.get("/products")
+async def products(user: UserResponse = Depends(current_user)):
+    return await list_resource("products", user)
+
+@api_router.post("/products")
+async def create_product(input: ProductInput, user: UserResponse = Depends(current_user)):
+    document = input.model_dump()
+    if input.purchase_price is not None and input.purchase_quantity:
+        cost = input.purchase_price / input.purchase_quantity
+        document["unit_cost"] = round(cost, 4)
+        document["suggested_sale_price"] = round(cost * 2.5, 2)
+    return await create_resource("products", document, user)
+
+@api_router.get("/ingredients")
+async def ingredients(user: UserResponse = Depends(current_user)):
+    return await list_resource("ingredients", user)
+
+@api_router.post("/ingredients")
+async def create_ingredient(input: IngredientInput, user: UserResponse = Depends(current_user)):
+    document = input.model_dump()
+    document["unit_cost"] = round(input.purchase_price / input.purchase_quantity, 4)
+    return await create_resource("ingredients", document, user)
+
+@api_router.get("/customers")
+async def customers(user: UserResponse = Depends(current_user)):
+    return await list_resource("customers", user)
+
+@api_router.post("/customers")
+async def create_customer(input: CustomerInput, user: UserResponse = Depends(current_user)):
+    return await create_resource("customers", input, user)
+
+@api_router.get("/recipes")
+async def recipes(user: UserResponse = Depends(current_user)):
+    return await list_resource("recipes", user)
+
+@api_router.post("/recipes")
+async def create_recipe(input: RecipeInput, user: UserResponse = Depends(current_user)):
+    document = input.model_dump()
+    total_cost = 0
+    for line in input.ingredients or []:
+        ingredient = await db.ingredients.find_one({"id": line.get("ingredient_id"), "created_by": user.id}, {"_id": 0})
+        if ingredient:
+            total_cost += float(ingredient["unit_cost"]) * float(line.get("quantity", 0))
+    document["cost_total"] = round(total_cost, 2)
+    document["cost_per_unit"] = round(total_cost / input.yield_quantity, 2) if input.yield_quantity else total_cost
+    return await create_resource("recipes", document, user)
+
+@api_router.get("/sales")
+async def sales(user: UserResponse = Depends(current_user)):
+    return await list_resource("sales", user)
+
+@api_router.post("/sales")
+async def create_sale(input: SaleInput, user: UserResponse = Depends(current_user)):
+    return await create_resource("sales", input, user)
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):

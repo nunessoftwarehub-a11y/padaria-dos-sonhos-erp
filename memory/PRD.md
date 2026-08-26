@@ -28,6 +28,8 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - Modelo Prisma relacional inicial e MER em Mermaid.
 - Testes independentes cobriram desktop, mobile, sessão, lockout e recuperação real.
 - Módulos vazios com estados iniciais e ações de cadastro foram adicionados em 2026-03-08.
+- Em 2026-03-08, adicionados cadastros persistentes de produtos, ingredientes, clientes, receitas e vendas.
+- PDV passou a usar formas de pagamento selecionáveis; produtos calculam custo unitário e sugestão de venda; receitas calculam custo total e por unidade.
 
 ## Backlog priorizado
 ### P0
