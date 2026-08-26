@@ -37,6 +37,15 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - Modal "Fechar pedido": total a pagar, formas de pagamento com ícones (Dinheiro, Débito, Crédito, PIX, Vale — Débito padrão), CPF/CNPJ e Nome opcionais, checkbox "Imprimir cupom fiscal", Cancelar/Confirmar.
 - Backend `/api/sales` aceita `items[]` (product_name, quantity, unit_price), calcula total no servidor e grava customer_document e print_receipt. Testado via curl e Playwright e2e.
 
+## Implementado em 2026-08-26 (rodada 2)
+- Caixa completo: abertura com saldo inicial (gate no PDV), sangria, suprimento, fechamento com conferência (dinheiro esperado vs contado, diferença) — endpoints `/api/register/open|current|movement|close`.
+- Baixa de estoque: venda no PDV desconta `stock_quantity` dos produtos (via product_id nos items) e ingredientes proporcionais quando o produto tem `recipe_id` (fator = qtd vendida / rendimento da receita). Ingredientes iniciam estoque = quantidade comprada.
+- Pagamento dividido: botão "Dividir pagamento" no modal, 2 formas com valores, backend valida soma (tolerância 0,05) em `payments[]`.
+- Visão geral real: `/api/dashboard/summary` (faturamento diário/mensal, lucro do dia, despesas=sangrias, vendas recentes, alertas de estoque mínimo).
+- Modo tela cheia do PDV: botão Expandir/Recolher esconde a sidebar (classe `pos-full`).
+- Produtos ganharam campos: estoque inicial, estoque mínimo (alerta) e receita vinculada (select dinâmico).
+- Testado: iteration_7 — frontend 100%, backend 9/10 (única falha: CORS do proxy público, pré-existente, nível infra).
+
 ## Backlog priorizado
 ### P0
 - Migrar a API executável para Node/Express/Prisma/PostgreSQL quando o serviço PostgreSQL estiver disponível.

@@ -60,6 +60,9 @@ class ProductInput(BaseModel):
     purchase_quantity: Optional[float] = None
     unit: Optional[str] = None
     barcode: Optional[str] = None
+    stock_quantity: Optional[float] = None
+    min_stock: Optional[float] = None
+    recipe_id: Optional[str] = None
 
 class IngredientInput(BaseModel):
     name: str = Field(min_length=2)
@@ -86,6 +89,11 @@ class SaleItemInput(BaseModel):
     product_name: str = Field(min_length=1)
     quantity: float = Field(gt=0)
     unit_price: float = Field(ge=0)
+    product_id: Optional[str] = None
+
+class PaymentSplitInput(BaseModel):
+    method: str = Field(min_length=2)
+    amount: float = Field(gt=0)
 
 class SaleInput(BaseModel):
     product_name: Optional[str] = None
@@ -93,9 +101,21 @@ class SaleInput(BaseModel):
     items: Optional[List[SaleItemInput]] = None
     total: Optional[float] = None
     payment_method: Optional[str] = None
+    payments: Optional[List[PaymentSplitInput]] = None
     customer_name: Optional[str] = None
     customer_document: Optional[str] = None
     print_receipt: bool = False
+
+class RegisterOpenInput(BaseModel):
+    opening_balance: float = Field(ge=0)
+
+class RegisterMovementInput(BaseModel):
+    type: str
+    amount: float = Field(gt=0)
+    note: Optional[str] = None
+
+class RegisterCloseInput(BaseModel):
+    counted_amount: float = Field(ge=0)
 
 class UserResponse(BaseModel):
     id: str
@@ -211,6 +231,7 @@ async def ingredients(user: UserResponse = Depends(current_user)):
 async def create_ingredient(input: IngredientInput, user: UserResponse = Depends(current_user)):
     document = input.model_dump()
     document["unit_cost"] = round(input.purchase_price / input.purchase_quantity, 4)
+    document["stock_quantity"] = input.purchase_quantity
     return await create_resource("ingredients", document, user)
 
 @api_router.get("/customers")
@@ -252,7 +273,102 @@ async def create_sale(input: SaleInput, user: UserResponse = Depends(current_use
         document["product_name"] = input.items[0].product_name if extras == 0 else f"{input.items[0].product_name} +{extras}"
     elif not input.product_name:
         raise HTTPException(status_code=422, detail="Informe os itens da venda")
+    if input.payments:
+        paid = round(sum(p.amount for p in input.payments), 2)
+        if abs(paid - (document.get("total") or 0)) > 0.05:
+            raise HTTPException(status_code=422, detail="A soma dos pagamentos deve ser igual ao total do pedido")
+        document["payments"] = [p.model_dump() for p in input.payments]
+        document["payment_method"] = " + ".join(p.method for p in input.payments)
+    session = await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0})
+    if session:
+        document["register_id"] = session["id"]
+    for item in input.items or []:
+        if not item.product_id:
+            continue
+        product = await db.products.find_one({"id": item.product_id, "created_by": user.id}, {"_id": 0})
+        if not product:
+            continue
+        if product.get("stock_quantity") is not None:
+            await db.products.update_one({"id": item.product_id}, {"$inc": {"stock_quantity": -item.quantity}})
+        if product.get("recipe_id"):
+            recipe = await db.recipes.find_one({"id": product["recipe_id"], "created_by": user.id}, {"_id": 0})
+            if recipe:
+                factor = item.quantity / recipe["yield_quantity"] if recipe.get("yield_quantity") else item.quantity
+                for line in recipe.get("ingredients") or []:
+                    await db.ingredients.update_one({"id": line.get("ingredient_id"), "created_by": user.id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
     return await create_resource("sales", document, user)
+
+async def register_summary(session: dict, user: UserResponse) -> dict:
+    session_sales = await db.sales.find({"created_by": user.id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
+    totals = {}
+    for sale in session_sales:
+        for payment in sale.get("payments") or [{"method": sale.get("payment_method") or "Outros", "amount": sale.get("total") or 0}]:
+            totals[payment["method"]] = round(totals.get(payment["method"], 0) + (payment.get("amount") or 0), 2)
+    movements = session.get("movements") or []
+    sangrias = round(sum(m["amount"] for m in movements if m["type"] == "sangria"), 2)
+    suprimentos = round(sum(m["amount"] for m in movements if m["type"] == "suprimento"), 2)
+    expected_cash = round(session["opening_balance"] + totals.get("Dinheiro", 0) + suprimentos - sangrias, 2)
+    return {"session": session, "totals_by_method": totals, "sales_count": len(session_sales), "sales_total": round(sum(s.get("total") or 0 for s in session_sales), 2), "sangrias": sangrias, "suprimentos": suprimentos, "expected_cash": expected_cash}
+
+@api_router.get("/register/current")
+async def register_current(user: UserResponse = Depends(current_user)):
+    session = await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0})
+    if not session:
+        return {"status": "closed"}
+    summary = await register_summary(session, user)
+    return {"status": "open", **summary}
+
+@api_router.post("/register/open")
+async def register_open(input: RegisterOpenInput, user: UserResponse = Depends(current_user)):
+    if await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0}):
+        raise HTTPException(status_code=409, detail="Já existe um caixa aberto")
+    session = {"id": str(uuid.uuid4()), "created_by": user.id, "status": "open", "opening_balance": input.opening_balance, "opened_at": datetime.now(timezone.utc).isoformat(), "movements": []}
+    await db.register_sessions.insert_one(dict(session))
+    return session
+
+@api_router.post("/register/movement")
+async def register_movement(input: RegisterMovementInput, user: UserResponse = Depends(current_user)):
+    if input.type not in ("sangria", "suprimento"):
+        raise HTTPException(status_code=422, detail="Tipo de movimento inválido")
+    session = await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=409, detail="Nenhum caixa aberto")
+    movement = {"id": str(uuid.uuid4()), "type": input.type, "amount": input.amount, "note": input.note, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.register_sessions.update_one({"id": session["id"]}, {"$push": {"movements": movement}})
+    return movement
+
+@api_router.post("/register/close")
+async def register_close(input: RegisterCloseInput, user: UserResponse = Depends(current_user)):
+    session = await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=409, detail="Nenhum caixa aberto")
+    summary = await register_summary(session, user)
+    difference = round(input.counted_amount - summary["expected_cash"], 2)
+    updates = {"status": "closed", "closed_at": datetime.now(timezone.utc).isoformat(), "counted_amount": input.counted_amount, "expected_cash": summary["expected_cash"], "difference": difference}
+    await db.register_sessions.update_one({"id": session["id"]}, {"$set": updates})
+    summary["session"] = {**session, **updates}
+    return {**summary, "difference": difference}
+
+@api_router.get("/dashboard/summary")
+async def dashboard_summary(user: UserResponse = Depends(current_user)):
+    now = datetime.now(timezone.utc)
+    today, month = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m")
+    all_sales = await db.sales.find({"created_by": user.id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    all_products = await db.products.find({"created_by": user.id}, {"_id": 0}).to_list(1000)
+    cost_map = {p["name"]: p.get("unit_cost") or 0 for p in all_products}
+    day_sales = [s for s in all_sales if (s.get("created_at") or "").startswith(today)]
+    month_sales = [s for s in all_sales if (s.get("created_at") or "").startswith(month)]
+    def cost_of(sale):
+        lines = sale.get("items") or [{"product_name": sale.get("product_name"), "quantity": sale.get("quantity") or 1}]
+        return sum(cost_map.get(line.get("product_name"), 0) * (line.get("quantity") or 0) for line in lines)
+    day_total = round(sum(s.get("total") or 0 for s in day_sales), 2)
+    month_total = round(sum(s.get("total") or 0 for s in month_sales), 2)
+    day_profit = round(day_total - sum(cost_of(s) for s in day_sales), 2)
+    day_expenses = 0.0
+    async for session in db.register_sessions.find({"created_by": user.id}, {"_id": 0}):
+        day_expenses += sum(m["amount"] for m in session.get("movements") or [] if m["type"] == "sangria" and (m.get("created_at") or "").startswith(today))
+    low_stock = [{"id": p["id"], "name": p["name"], "stock_quantity": p["stock_quantity"], "min_stock": p.get("min_stock") or 5} for p in all_products if p.get("stock_quantity") is not None and p["stock_quantity"] <= (p.get("min_stock") or 5)]
+    return {"day_total": day_total, "month_total": month_total, "day_profit": day_profit, "day_expenses": round(day_expenses, 2), "day_sales_count": len(day_sales), "recent_sales": all_sales[:6], "low_stock": low_stock}
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
