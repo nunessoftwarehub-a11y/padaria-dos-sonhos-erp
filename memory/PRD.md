@@ -31,6 +31,12 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - Em 2026-03-08, adicionados cadastros persistentes de produtos, ingredientes, clientes, receitas e vendas.
 - PDV passou a usar formas de pagamento selecionáveis; produtos calculam custo unitário e sugestão de venda; receitas calculam custo total e por unidade.
 
+## Implementado em 2026-08-26
+- PDV redesenhado no formato mercado (referência de fotos do usuário): categorias na lateral esquerda (fixas Bebidas/Salgados/Doces + dinâmicas dos produtos), busca de itens, cards de produto com nome e preço, painel "Pedido" à direita.
+- Carrinho multi-itens: tocar no produto soma no pedido, controles +/− de quantidade, remover item, contador de itens e total.
+- Modal "Fechar pedido": total a pagar, formas de pagamento com ícones (Dinheiro, Débito, Crédito, PIX, Vale — Débito padrão), CPF/CNPJ e Nome opcionais, checkbox "Imprimir cupom fiscal", Cancelar/Confirmar.
+- Backend `/api/sales` aceita `items[]` (product_name, quantity, unit_price), calcula total no servidor e grava customer_document e print_receipt. Testado via curl e Playwright e2e.
+
 ## Backlog priorizado
 ### P0
 - Migrar a API executável para Node/Express/Prisma/PostgreSQL quando o serviço PostgreSQL estiver disponível.

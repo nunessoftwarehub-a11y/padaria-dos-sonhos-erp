@@ -54,6 +54,7 @@ class ForgotInput(BaseModel):
 
 class ProductInput(BaseModel):
     name: str = Field(min_length=2)
+    category: str = "Salgados"
     sale_price: Optional[float] = None
     purchase_price: Optional[float] = None
     purchase_quantity: Optional[float] = None
@@ -81,12 +82,20 @@ class RecipeInput(BaseModel):
     duration_minutes: Optional[int] = None
     yield_quantity: Optional[float] = None
 
+class SaleItemInput(BaseModel):
+    product_name: str = Field(min_length=1)
+    quantity: float = Field(gt=0)
+    unit_price: float = Field(ge=0)
+
 class SaleInput(BaseModel):
-    product_name: str = Field(min_length=2)
-    quantity: int = Field(ge=1)
+    product_name: Optional[str] = None
+    quantity: Optional[float] = None
+    items: Optional[List[SaleItemInput]] = None
     total: Optional[float] = None
     payment_method: Optional[str] = None
     customer_name: Optional[str] = None
+    customer_document: Optional[str] = None
+    print_receipt: bool = False
 
 class UserResponse(BaseModel):
     id: str
@@ -234,7 +243,16 @@ async def sales(user: UserResponse = Depends(current_user)):
 
 @api_router.post("/sales")
 async def create_sale(input: SaleInput, user: UserResponse = Depends(current_user)):
-    return await create_resource("sales", input, user)
+    document = input.model_dump()
+    if input.items:
+        document["items"] = [item.model_dump() for item in input.items]
+        document["total"] = round(sum(item.quantity * item.unit_price for item in input.items), 2)
+        document["quantity"] = sum(item.quantity for item in input.items)
+        extras = len(input.items) - 1
+        document["product_name"] = input.items[0].product_name if extras == 0 else f"{input.items[0].product_name} +{extras}"
+    elif not input.product_name:
+        raise HTTPException(status_code=422, detail="Informe os itens da venda")
+    return await create_resource("sales", document, user)
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
