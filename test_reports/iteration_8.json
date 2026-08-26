@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 8 — E2E validation of the 4 new modules (Produção, Financeiro, Relatórios, Cliente vinculado à venda + Histórico) plus quick regression. Backend: 5/5 pytest passed in /app/backend/tests/test_new_modules.py — production 200 flow (ingredient deducted 5000→3000, product stock 0→40, ingredient_cost 20), production 404 for invalid recipe, register/history returns only closed sessions with sales_total/sales_count/sangrias/suprimentos, /api/reports/sales works for day|month|all and unknown period falls back to all, /api/sales stores customer_id and /api/customers/{id}/purchases returns them. Frontend: production module select+quantity+preview+save, finance history table with expandable session rows and movement chips, reports pills switching + reports-table/rows/totals-row + CSV download (relatorio-vendas-all.csv), PDV pos-customer-select linking sale to Maria Silva, and customers page expansion revealing purchase history rendered correctly. All work as expected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Products / Production forms", "issues": ["Dynamic <select> for 'recipes' loads slightly after the form renders — a brief flash where only the placeholder option ('Nenhuma' / 'Selecione a receita') is shown; harmless but a small skeleton or 'Carregando receitas...' option would improve UX."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_modules.py",
+    "/app/test_reports/pytest/iteration_8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py POST /api/production deducts ingredient stock even when the recipe has no yield_quantity (falls back to factor=input.quantity, which mirrors 1 unit produced per recipe line). Explicitly rejecting recipes with missing yield_quantity, or documenting this behaviour, would avoid surprising negative stocks.",
+    "GET /api/reports/sales silently maps any unknown period value to 'all' (empty prefix). Consider 422-ing invalid values so the frontend contract is explicit — currently only 'day'/'month'/'all' are documented but any string works.",
+    "CrudModule.js is still one 131-line file where each component is a single line of JSX. Line 102 (PosModule return) is ~4KB of inline JSX — very hard to review/diff. Recommend splitting into per-component files or formatting on multiple lines.",
+    "ReportsModule builds CSV via document.createElement('a').click() with no fallback for browsers that block programmatic downloads; low-risk but worth noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_modules.py",
+    "/app/test_reports/iteration_8.json"
+  ],
+  "success_rate": {"backend": "100% (5/5 new-module tests)", "frontend": "100% of the 4 new modules + regression PDV/customers/products"},
+  "test_credentials": "caixa.pdv@padaria.com / padaria123 (as documented in /app/memory/test_credentials.md).",
+  "seed_data_creation": "Backend tests use isolated TEST_ users via /api/auth/register. Frontend test used the seeded caixa.pdv@padaria.com; it did open a caixa (fundo R$ 50) and register a Dinheiro sale of Suco de Laranja linked to Maria Silva — so this user now has 3 closed sessions and 1 additional linked purchase (harmless for future tests).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "iteration_8 covers the 4 new features end-to-end. If you re-run the frontend suite, use timeouts >= 2s after navigation because dynamic <select> options (recipes list, customers list) load via a second axios call after the module mounts — a 500ms wait can miss them. Backend contract summary: POST /api/production requires an existing recipe (404 otherwise), deducts recipe.ingredients[].quantity * (input.quantity / recipe.yield_quantity) from each ingredient's stock_quantity and $inc's the same input.quantity into any product with matching recipe_id. GET /api/register/history returns only closed sessions with enriched sales_total/sales_count/sangrias/suprimentos. GET /api/reports/sales?period=day|month|all (unknown → all) returns rows sorted by revenue desc and totals; margin=(profit/revenue*100). POST /api/sales accepts customer_id; GET /api/customers/{id}/purchases returns the linked sales sorted by created_at desc. UI testids are stable: production-{recipe-select,quantity-input,cost-preview,save-button,form-message,record-row}, finance-{history-table,session-row,empty-state}, reports-{period-day,period-month,period-all,table,row,totals-row,export-button}, pos-customer-select, customers-record-row, customer-purchase-history. Preview-proxy CORS anomaly noted in iteration_7 remains an infra concern (not application).",
+  "rca of the issue": "N/A — no failing feature. First playwright pass reported empty recipe selects; retest with 3s wait showed the recipes load fine via /api/recipes 200. Pure test-timing artefact, not a product bug."
+}

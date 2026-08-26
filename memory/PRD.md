@@ -46,6 +46,13 @@ Construir um ERP profissional e comercializável para gestão de padarias, inici
 - Produtos ganharam campos: estoque inicial, estoque mínimo (alerta) e receita vinculada (select dinâmico).
 - Testado: iteration_7 — frontend 100%, backend 9/10 (única falha: CORS do proxy público, pré-existente, nível infra).
 
+## Implementado em 2026-08-26 (rodada 3)
+- Módulo Produção: registra produção de receita, baixa ingredientes proporcional ao rendimento e soma ao estoque dos produtos com `recipe_id` vinculado (`GET/POST /api/production`).
+- Financeiro / Histórico de caixas: lista de caixas fechados com fundo, vendas, suprimentos, sangrias, esperado, contado, diferença colorida e movimentos expandíveis (`GET /api/register/history`).
+- Relatórios de vendas: por produto (qtd, receita, custo, lucro, margem) com filtros Hoje/Este mês/Tudo e exportação CSV (`GET /api/reports/sales?period=`).
+- Cliente na venda: select de cliente cadastrado no modal do PDV (`customer_id` na venda) e histórico de compras expandível no módulo Clientes (`GET /api/customers/{id}/purchases`).
+- Testado: iteration_8 — backend 5/5, frontend 100%.
+
 ## Backlog priorizado
 ### P0
 - Migrar a API executável para Node/Express/Prisma/PostgreSQL quando o serviço PostgreSQL estiver disponível.

@@ -103,6 +103,7 @@ class SaleInput(BaseModel):
     payment_method: Optional[str] = None
     payments: Optional[List[PaymentSplitInput]] = None
     customer_name: Optional[str] = None
+    customer_id: Optional[str] = None
     customer_document: Optional[str] = None
     print_receipt: bool = False
 
@@ -116,6 +117,11 @@ class RegisterMovementInput(BaseModel):
 
 class RegisterCloseInput(BaseModel):
     counted_amount: float = Field(ge=0)
+
+class ProductionInput(BaseModel):
+    recipe_id: str
+    quantity: float = Field(gt=0)
+    notes: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -348,6 +354,70 @@ async def register_close(input: RegisterCloseInput, user: UserResponse = Depends
     await db.register_sessions.update_one({"id": session["id"]}, {"$set": updates})
     summary["session"] = {**session, **updates}
     return {**summary, "difference": difference}
+
+@api_router.get("/register/history")
+async def register_history(user: UserResponse = Depends(current_user)):
+    sessions = await db.register_sessions.find({"created_by": user.id, "status": "closed"}, {"_id": 0}).sort("closed_at", -1).to_list(200)
+    for session in sessions:
+        session_sales = await db.sales.find({"created_by": user.id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
+        session["sales_total"] = round(sum(s.get("total") or 0 for s in session_sales), 2)
+        session["sales_count"] = len(session_sales)
+        movements = session.get("movements") or []
+        session["sangrias"] = round(sum(m["amount"] for m in movements if m["type"] == "sangria"), 2)
+        session["suprimentos"] = round(sum(m["amount"] for m in movements if m["type"] == "suprimento"), 2)
+    return sessions
+
+@api_router.get("/production")
+async def production_list(user: UserResponse = Depends(current_user)):
+    return await list_resource("production", user)
+
+@api_router.post("/production")
+async def create_production(input: ProductionInput, user: UserResponse = Depends(current_user)):
+    recipe = await db.recipes.find_one({"id": input.recipe_id, "created_by": user.id}, {"_id": 0})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Receita não encontrada")
+    factor = input.quantity / recipe["yield_quantity"] if recipe.get("yield_quantity") else input.quantity
+    for line in recipe.get("ingredients") or []:
+        await db.ingredients.update_one({"id": line.get("ingredient_id"), "created_by": user.id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
+    updated = await db.products.update_many({"recipe_id": recipe["id"], "created_by": user.id}, {"$inc": {"stock_quantity": input.quantity}})
+    document = {"recipe_id": recipe["id"], "recipe_name": recipe["name"], "quantity": input.quantity, "notes": input.notes, "ingredient_cost": round((recipe.get("cost_total") or 0) * factor, 2), "responsible": user.name, "products_updated": updated.modified_count}
+    return await create_resource("production", document, user)
+
+@api_router.get("/reports/sales")
+async def sales_report(period: str = "all", user: UserResponse = Depends(current_user)):
+    now = datetime.now(timezone.utc)
+    prefix = now.strftime("%Y-%m-%d") if period == "day" else now.strftime("%Y-%m") if period == "month" else ""
+    all_sales = await db.sales.find({"created_by": user.id}, {"_id": 0}).to_list(5000)
+    all_products = await db.products.find({"created_by": user.id}, {"_id": 0}).to_list(1000)
+    cost_map = {p["name"]: p.get("unit_cost") or 0 for p in all_products}
+    rows = {}
+    for sale in all_sales:
+        if prefix and not (sale.get("created_at") or "").startswith(prefix):
+            continue
+        quantity = sale.get("quantity") or 1
+        lines = sale.get("items") or [{"product_name": sale.get("product_name"), "quantity": quantity, "unit_price": (sale.get("total") or 0) / quantity}]
+        for line in lines:
+            name = line.get("product_name") or "Sem nome"
+            qty = line.get("quantity") or 0
+            row = rows.setdefault(name, {"product_name": name, "quantity": 0, "revenue": 0, "cost": 0})
+            row["quantity"] += qty
+            row["revenue"] += qty * (line.get("unit_price") or 0)
+            row["cost"] += cost_map.get(name, 0) * qty
+    result = []
+    for row in rows.values():
+        row["revenue"], row["cost"] = round(row["revenue"], 2), round(row["cost"], 2)
+        row["profit"] = round(row["revenue"] - row["cost"], 2)
+        row["margin"] = round(row["profit"] / row["revenue"] * 100, 1) if row["revenue"] else 0
+        result.append(row)
+    result.sort(key=lambda r: -r["revenue"])
+    revenue = round(sum(r["revenue"] for r in result), 2)
+    cost = round(sum(r["cost"] for r in result), 2)
+    totals = {"quantity": sum(r["quantity"] for r in result), "revenue": revenue, "cost": cost, "profit": round(revenue - cost, 2), "margin": round((revenue - cost) / revenue * 100, 1) if revenue else 0}
+    return {"rows": result, "totals": totals}
+
+@api_router.get("/customers/{customer_id}/purchases")
+async def customer_purchases(customer_id: str, user: UserResponse = Depends(current_user)):
+    return await db.sales.find({"created_by": user.id, "customer_id": customer_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 @api_router.get("/dashboard/summary")
 async def dashboard_summary(user: UserResponse = Depends(current_user)):
