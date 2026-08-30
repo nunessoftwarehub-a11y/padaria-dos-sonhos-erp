@@ -1,9 +1,10 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import requests
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
@@ -11,7 +12,7 @@ import uuid
 import bcrypt
 import jwt
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 ROOT_DIR = Path(__file__).parent
@@ -31,6 +32,48 @@ api_router = APIRouter(prefix="/api")
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
 ROLE_LABELS = {"admin": "Administrador", "cashier": "Caixa", "staff": "Funcionário"}
+BRT = timezone(timedelta(hours=-3))
+
+def local_stamp(iso):
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(iso).astimezone(BRT).strftime("%Y-%m-%d")
+    except ValueError:
+        return iso[:10]
+
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_STORAGE_PREFIX = "padaria-dos-sonhos"
+storage_key = None
+
+def init_storage(force: bool = False):
+    global storage_key
+    if storage_key and not force:
+        return storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
+    if resp.status_code == 404:
+        key = init_storage(force=True)
+        resp = requests.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    if resp.status_code == 404:
+        key = init_storage(force=True)
+        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
 # Define Models
@@ -123,18 +166,42 @@ class ProductionInput(BaseModel):
     quantity: float = Field(gt=0)
     notes: Optional[str] = None
 
+class EmployeeInput(BaseModel):
+    name: str = Field(min_length=2)
+    email: EmailStr
+    password: str = Field(min_length=6)
+    role: str = "cashier"
+
+class EmployeeRoleInput(BaseModel):
+    role: str
+
+class SettingsInput(BaseModel):
+    bakery_name: Optional[str] = None
+    primary_color: Optional[str] = None
+
+class ExpenseInput(BaseModel):
+    description: str = Field(min_length=2)
+    category: str = "Outros"
+    amount: float = Field(gt=0)
+    due_date: Optional[str] = None
+    status: str = "pendente"
+
+class ExpenseStatusInput(BaseModel):
+    status: str
+
 class UserResponse(BaseModel):
     id: str
     name: str
     email: EmailStr
     role: str
     role_label: str
+    org_id: str
 
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode(), bcrypt.gensalt()).decode()
 
 def public_user(user: dict) -> UserResponse:
-    return UserResponse(id=str(user["id"]), name=user["name"], email=user["email"], role=user["role"], role_label=ROLE_LABELS[user["role"]])
+    return UserResponse(id=str(user["id"]), name=user["name"], email=user["email"], role=user["role"], role_label=ROLE_LABELS[user["role"]], org_id=user.get("org_id") or str(user["id"]))
 
 def issue_token(user: dict) -> str:
     return jwt.encode({"sub": user["id"], "exp": datetime.now(timezone.utc).timestamp() + 900, "type": "access"}, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -155,6 +222,11 @@ async def current_user(request: Request) -> UserResponse:
     except (jwt.InvalidTokenError, KeyError):
         raise HTTPException(status_code=401, detail="Sessão inválida")
 
+async def admin_user(user: UserResponse = Depends(current_user)) -> UserResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao administrador")
+    return user
+
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
@@ -165,7 +237,8 @@ async def register(input: AuthInput, response: Response):
     email = input.email.lower()
     if await db.users.find_one({"email": email}, {"_id": 0}):
         raise HTTPException(status_code=409, detail="Este e-mail já está cadastrado")
-    user = {"id": str(uuid.uuid4()), "name": input.name or email.split("@")[0].title(), "email": email, "password_hash": hash_password(input.password), "role": "staff", "created_at": datetime.now(timezone.utc).isoformat()}
+    user = {"id": str(uuid.uuid4()), "name": input.name or email.split("@")[0].title(), "email": email, "password_hash": hash_password(input.password), "role": "admin", "created_at": datetime.now(timezone.utc).isoformat()}
+    user["org_id"] = user["id"]
     await db.users.insert_one(user)
     response.set_cookie("access_token", issue_token(user), httponly=True, samesite="lax", max_age=900)
     return public_user(user)
@@ -207,11 +280,11 @@ async def dashboard():
     return {"metrics": [], "sales": [], "inventory": []}
 
 async def list_resource(collection: str, user: UserResponse):
-    return await db[collection].find({"created_by": user.id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return await db[collection].find({"org_id": user.org_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 async def create_resource(collection: str, payload: BaseModel, user: UserResponse):
     document = payload.model_dump() if isinstance(payload, BaseModel) else dict(payload)
-    document.update({"id": str(uuid.uuid4()), "created_by": user.id, "created_at": datetime.now(timezone.utc).isoformat()})
+    document.update({"id": str(uuid.uuid4()), "created_by": user.id, "org_id": user.org_id, "created_at": datetime.now(timezone.utc).isoformat()})
     await db[collection].insert_one(document)
     document.pop("_id", None)
     return document
@@ -291,21 +364,21 @@ async def create_sale(input: SaleInput, user: UserResponse = Depends(current_use
     for item in input.items or []:
         if not item.product_id:
             continue
-        product = await db.products.find_one({"id": item.product_id, "created_by": user.id}, {"_id": 0})
+        product = await db.products.find_one({"id": item.product_id, "org_id": user.org_id}, {"_id": 0})
         if not product:
             continue
         if product.get("stock_quantity") is not None:
             await db.products.update_one({"id": item.product_id}, {"$inc": {"stock_quantity": -item.quantity}})
         if product.get("recipe_id"):
-            recipe = await db.recipes.find_one({"id": product["recipe_id"], "created_by": user.id}, {"_id": 0})
+            recipe = await db.recipes.find_one({"id": product["recipe_id"], "org_id": user.org_id}, {"_id": 0})
             if recipe:
                 factor = item.quantity / recipe["yield_quantity"] if recipe.get("yield_quantity") else item.quantity
                 for line in recipe.get("ingredients") or []:
-                    await db.ingredients.update_one({"id": line.get("ingredient_id"), "created_by": user.id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
+                    await db.ingredients.update_one({"id": line.get("ingredient_id"), "org_id": user.org_id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
     return await create_resource("sales", document, user)
 
 async def register_summary(session: dict, user: UserResponse) -> dict:
-    session_sales = await db.sales.find({"created_by": user.id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
+    session_sales = await db.sales.find({"org_id": user.org_id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
     totals = {}
     for sale in session_sales:
         for payment in sale.get("payments") or [{"method": sale.get("payment_method") or "Outros", "amount": sale.get("total") or 0}]:
@@ -328,7 +401,7 @@ async def register_current(user: UserResponse = Depends(current_user)):
 async def register_open(input: RegisterOpenInput, user: UserResponse = Depends(current_user)):
     if await db.register_sessions.find_one({"created_by": user.id, "status": "open"}, {"_id": 0}):
         raise HTTPException(status_code=409, detail="Já existe um caixa aberto")
-    session = {"id": str(uuid.uuid4()), "created_by": user.id, "status": "open", "opening_balance": input.opening_balance, "opened_at": datetime.now(timezone.utc).isoformat(), "movements": []}
+    session = {"id": str(uuid.uuid4()), "created_by": user.id, "org_id": user.org_id, "status": "open", "opening_balance": input.opening_balance, "opened_at": datetime.now(timezone.utc).isoformat(), "movements": []}
     await db.register_sessions.insert_one(dict(session))
     return session
 
@@ -356,10 +429,10 @@ async def register_close(input: RegisterCloseInput, user: UserResponse = Depends
     return {**summary, "difference": difference}
 
 @api_router.get("/register/history")
-async def register_history(user: UserResponse = Depends(current_user)):
-    sessions = await db.register_sessions.find({"created_by": user.id, "status": "closed"}, {"_id": 0}).sort("closed_at", -1).to_list(200)
+async def register_history(user: UserResponse = Depends(admin_user)):
+    sessions = await db.register_sessions.find({"org_id": user.org_id, "status": "closed"}, {"_id": 0}).sort("closed_at", -1).to_list(200)
     for session in sessions:
-        session_sales = await db.sales.find({"created_by": user.id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
+        session_sales = await db.sales.find({"org_id": user.org_id, "register_id": session["id"]}, {"_id": 0}).to_list(1000)
         session["sales_total"] = round(sum(s.get("total") or 0 for s in session_sales), 2)
         session["sales_count"] = len(session_sales)
         movements = session.get("movements") or []
@@ -373,26 +446,26 @@ async def production_list(user: UserResponse = Depends(current_user)):
 
 @api_router.post("/production")
 async def create_production(input: ProductionInput, user: UserResponse = Depends(current_user)):
-    recipe = await db.recipes.find_one({"id": input.recipe_id, "created_by": user.id}, {"_id": 0})
+    recipe = await db.recipes.find_one({"id": input.recipe_id, "org_id": user.org_id}, {"_id": 0})
     if not recipe:
         raise HTTPException(status_code=404, detail="Receita não encontrada")
     factor = input.quantity / recipe["yield_quantity"] if recipe.get("yield_quantity") else input.quantity
     for line in recipe.get("ingredients") or []:
-        await db.ingredients.update_one({"id": line.get("ingredient_id"), "created_by": user.id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
-    updated = await db.products.update_many({"recipe_id": recipe["id"], "created_by": user.id}, {"$inc": {"stock_quantity": input.quantity}})
+        await db.ingredients.update_one({"id": line.get("ingredient_id"), "org_id": user.org_id}, {"$inc": {"stock_quantity": -round(float(line.get("quantity", 0)) * factor, 4)}})
+    updated = await db.products.update_many({"recipe_id": recipe["id"], "org_id": user.org_id}, {"$inc": {"stock_quantity": input.quantity}})
     document = {"recipe_id": recipe["id"], "recipe_name": recipe["name"], "quantity": input.quantity, "notes": input.notes, "ingredient_cost": round((recipe.get("cost_total") or 0) * factor, 2), "responsible": user.name, "products_updated": updated.modified_count}
     return await create_resource("production", document, user)
 
 @api_router.get("/reports/sales")
-async def sales_report(period: str = "all", user: UserResponse = Depends(current_user)):
-    now = datetime.now(timezone.utc)
+async def sales_report(period: str = "all", user: UserResponse = Depends(admin_user)):
+    now = datetime.now(BRT)
     prefix = now.strftime("%Y-%m-%d") if period == "day" else now.strftime("%Y-%m") if period == "month" else ""
-    all_sales = await db.sales.find({"created_by": user.id}, {"_id": 0}).to_list(5000)
-    all_products = await db.products.find({"created_by": user.id}, {"_id": 0}).to_list(1000)
+    all_sales = await db.sales.find({"org_id": user.org_id}, {"_id": 0}).to_list(5000)
+    all_products = await db.products.find({"org_id": user.org_id}, {"_id": 0}).to_list(1000)
     cost_map = {p["name"]: p.get("unit_cost") or 0 for p in all_products}
     rows = {}
     for sale in all_sales:
-        if prefix and not (sale.get("created_at") or "").startswith(prefix):
+        if prefix and not local_stamp(sale.get("created_at")).startswith(prefix):
             continue
         quantity = sale.get("quantity") or 1
         lines = sale.get("items") or [{"product_name": sale.get("product_name"), "quantity": quantity, "unit_price": (sale.get("total") or 0) / quantity}]
@@ -417,28 +490,140 @@ async def sales_report(period: str = "all", user: UserResponse = Depends(current
 
 @api_router.get("/customers/{customer_id}/purchases")
 async def customer_purchases(customer_id: str, user: UserResponse = Depends(current_user)):
-    return await db.sales.find({"created_by": user.id, "customer_id": customer_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return await db.sales.find({"org_id": user.org_id, "customer_id": customer_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 @api_router.get("/dashboard/summary")
 async def dashboard_summary(user: UserResponse = Depends(current_user)):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(BRT)
     today, month = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m")
-    all_sales = await db.sales.find({"created_by": user.id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    all_products = await db.products.find({"created_by": user.id}, {"_id": 0}).to_list(1000)
+    all_sales = await db.sales.find({"org_id": user.org_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    all_products = await db.products.find({"org_id": user.org_id}, {"_id": 0}).to_list(1000)
     cost_map = {p["name"]: p.get("unit_cost") or 0 for p in all_products}
-    day_sales = [s for s in all_sales if (s.get("created_at") or "").startswith(today)]
-    month_sales = [s for s in all_sales if (s.get("created_at") or "").startswith(month)]
+    day_sales = [s for s in all_sales if local_stamp(s.get("created_at")) == today]
+    month_sales = [s for s in all_sales if local_stamp(s.get("created_at")).startswith(month)]
     def cost_of(sale):
         lines = sale.get("items") or [{"product_name": sale.get("product_name"), "quantity": sale.get("quantity") or 1}]
         return sum(cost_map.get(line.get("product_name"), 0) * (line.get("quantity") or 0) for line in lines)
     day_total = round(sum(s.get("total") or 0 for s in day_sales), 2)
     month_total = round(sum(s.get("total") or 0 for s in month_sales), 2)
     day_profit = round(day_total - sum(cost_of(s) for s in day_sales), 2)
+    month_profit = round(month_total - sum(cost_of(s) for s in month_sales), 2)
     day_expenses = 0.0
-    async for session in db.register_sessions.find({"created_by": user.id}, {"_id": 0}):
-        day_expenses += sum(m["amount"] for m in session.get("movements") or [] if m["type"] == "sangria" and (m.get("created_at") or "").startswith(today))
+    async for session in db.register_sessions.find({"org_id": user.org_id}, {"_id": 0}):
+        day_expenses += sum(m["amount"] for m in session.get("movements") or [] if m["type"] == "sangria" and local_stamp(m.get("created_at")) == today)
+    expense_docs = await db.expenses.find({"org_id": user.org_id}, {"_id": 0}).to_list(1000)
+    month_expenses_paid = round(sum(e.get("amount") or 0 for e in expense_docs if e.get("status") == "pago" and local_stamp(e.get("paid_at") or e.get("created_at")).startswith(month)), 2)
+    pending_expenses = round(sum(e.get("amount") or 0 for e in expense_docs if e.get("status") != "pago"), 2)
+    real_month_profit = round(month_profit - month_expenses_paid, 2)
+    last_7_days = []
+    for offset in range(6, -1, -1):
+        day = (now - timedelta(days=offset)).strftime("%Y-%m-%d")
+        total = round(sum(s.get("total") or 0 for s in all_sales if local_stamp(s.get("created_at")) == day), 2)
+        last_7_days.append({"date": day, "total": total})
     low_stock = [{"id": p["id"], "name": p["name"], "stock_quantity": p["stock_quantity"], "min_stock": p.get("min_stock") or 5} for p in all_products if p.get("stock_quantity") is not None and p["stock_quantity"] <= (p.get("min_stock") or 5)]
-    return {"day_total": day_total, "month_total": month_total, "day_profit": day_profit, "day_expenses": round(day_expenses, 2), "day_sales_count": len(day_sales), "recent_sales": all_sales[:6], "low_stock": low_stock}
+    return {"day_total": day_total, "month_total": month_total, "day_profit": day_profit, "month_profit": month_profit, "day_expenses": round(day_expenses, 2), "month_expenses_paid": month_expenses_paid, "pending_expenses": pending_expenses, "real_month_profit": real_month_profit, "last_7_days": last_7_days, "day_sales_count": len(day_sales), "recent_sales": all_sales[:6], "low_stock": low_stock}
+
+DEFAULT_SETTINGS = {"bakery_name": "Padaria dos Sonhos", "primary_color": "#B45309", "logo_path": None}
+
+@api_router.get("/settings")
+async def get_settings(user: UserResponse = Depends(current_user)):
+    doc = await db.settings.find_one({"org_id": user.org_id}, {"_id": 0})
+    return {**DEFAULT_SETTINGS, **(doc or {})}
+
+@api_router.put("/settings")
+async def update_settings(input: SettingsInput, user: UserResponse = Depends(admin_user)):
+    updates = {key: value for key, value in input.model_dump().items() if value is not None}
+    await db.settings.update_one({"org_id": user.org_id}, {"$set": {**updates, "org_id": user.org_id, "updated_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    doc = await db.settings.find_one({"org_id": user.org_id}, {"_id": 0})
+    return {**DEFAULT_SETTINGS, **(doc or {})}
+
+@api_router.post("/settings/logo")
+async def upload_logo(file: UploadFile = File(...), user: UserResponse = Depends(admin_user)):
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=422, detail="Envie um arquivo de imagem (PNG, JPG ou WEBP)")
+    data = await file.read()
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="Imagem muito grande (máximo 2MB)")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "png"
+    path = f"{APP_STORAGE_PREFIX}/logos/{user.org_id}/{uuid.uuid4()}.{ext}"
+    try:
+        result = put_object(path, data, file.content_type)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Falha ao enviar a logo. Tente novamente.")
+    await db.settings.update_one({"org_id": user.org_id}, {"$set": {"logo_path": result["path"], "org_id": user.org_id}}, upsert=True)
+    return {"logo_path": result["path"]}
+
+@api_router.get("/settings/logo")
+async def get_logo(user: UserResponse = Depends(current_user)):
+    doc = await db.settings.find_one({"org_id": user.org_id}, {"_id": 0})
+    if not doc or not doc.get("logo_path"):
+        raise HTTPException(status_code=404, detail="Nenhuma logo cadastrada")
+    try:
+        content, content_type = get_object(doc["logo_path"])
+    except Exception:
+        raise HTTPException(status_code=502, detail="Não foi possível carregar a logo")
+    return Response(content=content, media_type=content_type)
+
+@api_router.get("/employees")
+async def employees_list(user: UserResponse = Depends(admin_user)):
+    members = await db.users.find({"org_id": user.org_id}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(100)
+    return [{**member, "role_label": ROLE_LABELS.get(member.get("role"), member.get("role"))} for member in members]
+
+@api_router.post("/employees")
+async def create_employee(input: EmployeeInput, user: UserResponse = Depends(admin_user)):
+    if input.role not in ROLE_LABELS:
+        raise HTTPException(status_code=422, detail="Papel inválido")
+    email = input.email.lower()
+    if await db.users.find_one({"email": email}, {"_id": 0}):
+        raise HTTPException(status_code=409, detail="Este e-mail já está cadastrado")
+    employee = {"id": str(uuid.uuid4()), "name": input.name, "email": email, "password_hash": hash_password(input.password), "role": input.role, "org_id": user.org_id, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.users.insert_one(dict(employee))
+    employee.pop("password_hash")
+    employee.pop("_id", None)
+    employee["role_label"] = ROLE_LABELS[input.role]
+    return employee
+
+@api_router.patch("/employees/{employee_id}")
+async def update_employee_role(employee_id: str, input: EmployeeRoleInput, user: UserResponse = Depends(admin_user)):
+    if input.role not in ROLE_LABELS:
+        raise HTTPException(status_code=422, detail="Papel inválido")
+    if employee_id == user.id:
+        raise HTTPException(status_code=422, detail="Você não pode alterar o próprio papel")
+    result = await db.users.update_one({"id": employee_id, "org_id": user.org_id}, {"$set": {"role": input.role}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    return {"message": "Papel atualizado"}
+
+@api_router.delete("/employees/{employee_id}")
+async def delete_employee(employee_id: str, user: UserResponse = Depends(admin_user)):
+    if employee_id == user.id:
+        raise HTTPException(status_code=422, detail="Você não pode remover a própria conta")
+    result = await db.users.delete_one({"id": employee_id, "org_id": user.org_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    return {"message": "Funcionário removido"}
+
+@api_router.get("/expenses")
+async def expenses_list(user: UserResponse = Depends(admin_user)):
+    return await db.expenses.find({"org_id": user.org_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.post("/expenses")
+async def create_expense(input: ExpenseInput, user: UserResponse = Depends(admin_user)):
+    document = input.model_dump()
+    if input.status == "pago":
+        document["paid_at"] = datetime.now(timezone.utc).isoformat()
+    return await create_resource("expenses", document, user)
+
+@api_router.patch("/expenses/{expense_id}")
+async def update_expense_status(expense_id: str, input: ExpenseStatusInput, user: UserResponse = Depends(admin_user)):
+    if input.status not in ("pendente", "pago"):
+        raise HTTPException(status_code=422, detail="Status inválido")
+    updates = {"status": input.status}
+    updates["paid_at"] = datetime.now(timezone.utc).isoformat() if input.status == "pago" else None
+    result = await db.expenses.update_one({"id": expense_id, "org_id": user.org_id}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+    return {"message": "Conta atualizada"}
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
